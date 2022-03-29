@@ -1,5 +1,5 @@
 # FlaskApi
-   # Inculudes
+   # includes
     # Cloudinary
     # Ngrok
     # Google Colab
