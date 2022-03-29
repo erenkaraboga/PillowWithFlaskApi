@@ -1,13 +1,14 @@
 # app.py
+import cloudinary
 from flask import Flask, json, request, jsonify
+from flask_ngrok import run_with_ngrok
+import cloudinary.uploader
 import os
 import urllib.request
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-
-app.secret_key = "caircocoders-ednalan"
-
+run_with_ngrok(app)
 UPLOAD_FOLDER = 'static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -18,9 +19,11 @@ ALLOWED_EXTENSIONS = set(['txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'])
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
 @app.route('/')
 def main():
     return 'Homepage'
+
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -38,7 +41,8 @@ def upload_file():
     for file in files:
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+            cloudinary.uploader.upload(file)
             success = True
         else:
             errors[file.filename] = 'File type is not allowed'
@@ -59,4 +63,10 @@ def upload_file():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
+
+cloudinary.config(
+    cloud_name="dinqa9wqr",
+    api_key="225548188944398",
+    api_secret="S0s1UsBPu3luxg5afZX_LyBNv-U"
+)
