@@ -3,3 +3,4 @@
     # Cloudinary
     # Ngrok
     # Google Colab
+    # Pillow
