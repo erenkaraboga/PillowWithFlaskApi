@@ -201,23 +201,18 @@ def RGB_to_CCT(RGB, method="McCamy 1992", Ts=T_START, Tf=T_FINISH):
 
     return CCT
 
-#Piksel methodu
-def get_RGB_For_Imagge(image):
-    pixels = list(image.getdata())
-    return pixels
-#Fotoğraf Açılıyor
-im = Image.open(r"C:\Users\erenk\Desktop/22222.jpg")
-im.show()
-#Piksel fazlalığı giderilip iş gücü azaltılıyor..
-size = 50, 50
-im.thumbnail(size, Image.ANTIALIAS)
-#RGB değeri alınıyor
-RGB = get_RGB_For_Imagge(im)
-#RGB(tuple) değeri np.array dönüştürülüyor.
-rgb = np.array(RGB)
-#Döngü içerisinde her bir piksel için cct değeri hespalanıyor
-i = 1
-while i < len(rgb):
-    cct = RGB_to_CCT(rgb[i])
-    i += 1
-    print(cct)
+def getAverageCCT(image, toplam=None):
+    # Piksel fazlalığı giderilip iş gücü azaltılıyor..
+    size = 50, 50
+    image.thumbnail(size, Image.ANTIALIAS)
+    # RGB değeri alınıyor
+    RGB = list(image.getdata())
+    # RGB(tuple) değeri np.array dönüştürülüyor.
+    rgb = np.array(RGB)
+    # Döngü içerisinde her bir piksel için cct değeri hespalanıyor
+    i = 1
+    while i < len(rgb):
+        cct = RGB_to_CCT(rgb[i])
+        i += 1
+        toplam += cct
+    return toplam/250

@@ -5,6 +5,18 @@ from flask_ngrok import run_with_ngrok
 import cloudinary.uploader
 import os
 import urllib.request
+import colour
+import math
+import csv
+from PIL import Image
+from multiprocessing import Pool
+import numpy as np
+from numpy import double
+
+is_install_required_package = True
+is_debug = False
+T_START = 2000  # 1500 # K
+T_FINISH = 12500  # 25000 # K
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -14,6 +26,217 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 ALLOWED_EXTENSIONS = set(['txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'])
+
+cloudinary.config(
+    cloud_name="dinqa9wqr",
+    api_key="225548188944398",
+    api_secret="S0s1UsBPu3luxg5afZX_LyBNv-U"
+)
+
+
+def mean_CCT_for_image(image):
+    # display(image)
+
+    with Pool(processes=5) as p:
+        pixels = list(image.getdata())
+        print(pixels[0])
+        results = p.map(RGB_to_CCT, pixels)
+
+    return get_metriks(results)
+
+
+def get_metriks(arr, Ts=T_START, Tf=T_FINISH):
+    d = {}
+    x = np.array(arr)
+    # print("arr:", type(arr))  # <class 'list'>
+    # print("x:", type(x))      # <class 'numpy.ndarray'>
+
+    # print("\na. > Ts")
+    xx = x[x > Ts]
+    d["mean"] = np.mean(xx)
+    d["count"] = len(xx)
+
+    # Sifirlar
+    # print("\nb. == 0")
+    zz = x[x == 0]
+    d["e0"] = len(zz)
+
+    # Birler
+    # print("\ne. == 1")
+    bb = x[x == 1]
+    d["e1"] = len(bb)
+
+    # Negatifler
+    # print("\ne. < 0")
+    nn = x[x < 0]
+    d["negative"] = len(nn)
+
+    return d
+
+
+# Referans: colour-develop\colour\plotting\temperature.py#90-100
+def uv_to_xy(uv):
+    """
+    Converts given *uv* chromaticity coordinates to xy/*ij* chromaticity
+    coordinates.
+    """
+
+    return colour.models.UCS_uv_to_xy(uv)
+
+
+# Referans: colour-develop\colour\plotting\temperature.py#123-125
+def temperature_to_isotemperature_line(T):
+    """
+      T = 2500 # Kelvin
+
+      return (x0, y0, x1, y1)
+    """
+    D_uv = 0.025
+
+    x0, y0 = uv_to_xy(colour.temperature.CCT_to_uv(np.array([T, -D_uv]), 'Robertson 1968'))
+    x1, y1 = uv_to_xy(colour.temperature.CCT_to_uv(np.array([T, D_uv]), 'Robertson 1968'))
+
+    return ([x0, y0], [x1, y1])
+
+
+def is_between_Ts_Tf(xy, Ts=T_START, Tf=T_FINISH):
+    """
+      print("True ?", is_between_Ts_Tf([0.375, 0.375]))
+      print("True ?", is_between_Ts_Tf([0.335, 0.25]))
+      print("True ?", is_between_Ts_Tf([0.4, 0.65]))
+      print("False ?", is_between_Ts_Tf([0.1, 0.2]))
+      print("False ?", is_between_Ts_Tf([0.6, 0.3]))
+    """
+    p = xy
+    b1 = is_below_line_at_T(Ts, p)
+    b2 = is_below_line_at_T(Tf, p)
+    b = b1 and not (b2)
+
+    # print(b1, b2, b)
+
+    return b
+
+
+def is_below_line_at_T(T, p):
+    p1, p2 = temperature_to_isotemperature_line(T)
+
+    x1, y1 = p1
+    x2, y2 = p2
+    xA, yA = p
+
+    v1 = (x2 - x1, y2 - y1)  # Vector 1
+    v2 = (x2 - xA, y2 - yA)  # Vector 1
+    xp = v1[0] * v2[1] - v1[1] * v2[0]  # Cross product
+
+    return xp <= 0
+
+
+def xy_to_CCT_with_andres99(xy, is_K_greater_50000=False):
+    x, y = xy[0], xy[1]
+
+    # 50.000 - 8x10^5 K
+    if is_K_greater_50000:
+        xe = 0.3356
+        ye = 0.1691
+
+        A0 = 36284.48953
+        A1 = 0.00228
+        A2 = 5.4535e-36
+        A3 = 0
+        t1 = 0.07861
+        t2 = 0.01543
+        t3 = 1
+    # 3.000 - 50.000 K
+    else:
+        xe = 0.3366
+        ye = 0.1735
+
+        A0 = -949.86315
+        A1 = 6253.80338
+        A2 = 28.70599
+        A3 = 0.00004
+        t1 = 0.92159
+        t2 = 0.20039
+        t3 = 0.07125
+
+    e = math.exp
+
+    n = (x - xe) / (y - ye)
+    CCT = A0 + A1 * e(-n / t1) + A2 * e(-n / t2) + A3 * e(-n / t3)
+
+    return CCT
+
+
+"""
+  RGB = np.array([255.0, 255.0, 255.0])
+"""
+
+
+def RGB_to_CCT(RGB, method="McCamy 1992", Ts=T_START, Tf=T_FINISH):
+    # print(type(RGB[0]))
+    if type(RGB) is tuple:
+        RGB = np.array(RGB)
+
+    # Conversion to tristimulus values.
+    XYZ = colour.sRGB_to_XYZ(RGB / 255)
+
+    if XYZ[0] == 0 and XYZ[1] == 0 and XYZ[2] == 0:
+        return 6502  # K
+
+    # Conversion to chromaticity coordinates.
+    xy = colour.XYZ_to_xy(XYZ)
+
+    if method == "McCamy 1992":
+        if is_debug:
+            print("\txy:", xy)
+
+    # a. xy erimde degilse
+    if not (is_between_Ts_Tf(xy, Ts, Tf)):
+        return 1
+
+    if method == "andres99_1":
+        CCT = xy_to_CCT_with_andres99(xy)
+    elif method == "andres99_2":
+        CCT = xy_to_CCT_with_andres99(xy, is_K_greater_50000=True)
+    elif method == "Robertson 1968":
+        uv = colour.UCS_to_uv(colour.XYZ_to_UCS(colour.xy_to_XYZ(xy)))
+        CCT, d_uv = colour.uv_to_CCT(uv, method='Robertson 1968')
+    else:
+        # Conversion to correlated colour temperature in K.
+        # https://github.com/colour-science/colour#correlated-colour-temperature-computation-methods-colour-temperature
+        CCT = colour.xy_to_CCT(xy, method)
+
+    if is_debug:
+        print("\t T: %.1f Kelvin (method: %s)" % (CCT, method))
+
+    if CCT < 0:
+        CCT = 0
+    # elif CCT < Ts or CCT > Tf:
+    #  CCT = -CCT
+    elif CCT < Ts:
+        CCT = Ts
+    elif CCT > Tf:
+        CCT = Tf
+
+    return CCT
+
+
+def getAverageCCT(image, toplam=None):
+    # Piksel fazlalığı giderilip iş gücü azaltılıyor..
+    size = 50, 50
+    image.thumbnail(size, Image.ANTIALIAS)
+    # RGB değeri alınıyor
+    RGB = list(image.getdata())
+    # RGB(tuple) değeri np.array dönüştürülüyor.
+    rgb = np.array(RGB)
+    # Döngü içerisinde her bir piksel için cct değeri hespalanıyor
+    i = 1
+    while i < len(rgb):
+        cct = RGB_to_CCT(rgb[i])
+        i += 1
+        toplam += cct
+
+    return double(str(toplam / 250)[0:5])
 
 
 def allowed_file(filename):
@@ -28,38 +251,11 @@ def main():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     # check if the post request has the file part
-    if 'files[]' not in request.files:
-        resp = jsonify({'message': 'No file part in the request'})
-        resp.status_code = 400
-        return resp
-
-    files = request.files.getlist('files[]')
-
-    errors = {}
-    success = False
-
-    for file in files:
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-
-            cloudinary.uploader.upload(file)
-            success = True
-        else:
-            errors[file.filename] = 'File type is not allowed'
-
-    if success and errors:
-        errors['message'] = 'File(s) successfully uploaded'
-        resp = jsonify(errors)
-        resp.status_code = 500
-        return resp
-    if success:
-        resp = jsonify({'message': 'Files successfully uploaded'})
-        resp.status_code = 201
-        return resp
-    else:
-        resp = jsonify(errors)
-        resp.status_code = 500
-        return resp
+    image = request.files['file']
+    cloudinary.uploader.upload(image)
+    img = Image.open(image.stream)
+    resp = jsonify({'CCT': getAverageCCT(img, 0)})
+    return resp
 
 
 if __name__ == '__main__':
